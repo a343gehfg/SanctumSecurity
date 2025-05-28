@@ -1,16 +1,16 @@
 import sqlite3
 import discord
 import os
-from discord.ext import commands
 from discord import app_commands
+from discord.ext import commands, tasks
 from datetime import datetime
 import logging
 from dotenv import load_dotenv
 
-from keep_alive import keep_alive
-
 # Load environment variables
 load_dotenv()
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+OWNER_ID = int(os.getenv("OWNER_ID"))  # Put your Discord user ID in the .env file
 
 # Logging Configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -21,7 +21,6 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 DB_FILE = "banlist.db"
-OWNER_ID = 1053047461280759860  # Replace with your actual Discord user ID (as an integer)
 
 # Database Initialization
 def init_db():
@@ -48,7 +47,6 @@ def db_query(query, params=(), fetchone=False, fetchall=False):
         elif fetchall:
             return c.fetchall()
 
-# Core Logic
 def is_user_banned(user_id):
     result = db_query("SELECT reason FROM banned_users WHERE user_id=?", (str(user_id),), fetchone=True)
     return result[0] if result else None
@@ -88,59 +86,59 @@ async def on_member_join(member):
 @tree.command(name="enable_autoban", description="Enable auto-banning flagged users on join.")
 async def enable_autoban(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("You need to be an administrator to use this.", ephemeral=True)
+        await interaction.response.send_message("Missing administrator permissions.", ephemeral=True)
         return
     db_query("INSERT OR REPLACE INTO autoban_servers (server_id) VALUES (?)", (str(interaction.guild.id),))
-    await interaction.response.send_message("Autoban has been **enabled**.")
+    await interaction.response.send_message("Autoban has been enabled.")
 
-@tree.command(name="disable_autoban", description="Disable auto-banning flagged users.")
+@tree.command(name="disable_autoban", description="Disable autoban.")
 async def disable_autoban(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("You need to be an administrator to use this.", ephemeral=True)
+        await interaction.response.send_message("Missing administrator permissions.", ephemeral=True)
         return
     db_query("DELETE FROM autoban_servers WHERE server_id=?", (str(interaction.guild.id),))
-    await interaction.response.send_message("Autoban has been **disabled**.")
+    await interaction.response.send_message("Autoban has been disabled.")
 
-@tree.command(name="add_flag", description="Globally flag a user.")
-@app_commands.describe(user_id="User ID to flag", reason="Reason for flagging")
-async def add_flag(interaction: discord.Interaction, user_id: int, reason: str = "No reason provided"):
+@tree.command(name="add_flag", description="Globally flag a user by ID")
+@app_commands.describe(user_id="The user's Discord ID", reason="Reason for flagging")
+async def add_flag(interaction: discord.Interaction, user_id: str, reason: str):
     if interaction.user.id != OWNER_ID:
-        await interaction.response.send_message("❌ You are not authorized to use this command.", ephemeral=True)
+        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        return
+    try:
+        int(user_id)  # Validate
+    except ValueError:
+        await interaction.response.send_message("❌ Invalid user ID.", ephemeral=True)
         return
     add_flagged_user(user_id, reason, str(interaction.user))
-    await interaction.response.send_message(f"✅ User `{user_id}` has been **flagged** for: *{reason}*.")
-    logging.info(f"Flagged {user_id} for: {reason} by {interaction.user}")
+    await interaction.response.send_message(f"✅ User `{user_id}` has been flagged for: *{reason}*.")
 
-@tree.command(name="remove_flag", description="Remove a flag from a user.")
-@app_commands.describe(user_id="User ID to unflag")
-async def remove_flag(interaction: discord.Interaction, user_id: int):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("You need to be an administrator to use this.", ephemeral=True)
+@tree.command(name="remove_flag", description="Remove a user from the flagged list")
+@app_commands.describe(user_id="The user's Discord ID")
+async def remove_flag(interaction: discord.Interaction, user_id: str):
+    if interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
         return
     db_query("DELETE FROM banned_users WHERE user_id=?", (str(user_id),))
-    await interaction.response.send_message(f"User `{user_id}` has been **unflagged**.")
-    logging.info(f"Unflagged {user_id} by {interaction.user}")
+    await interaction.response.send_message(f"✅ User `{user_id}` has been unflagged.")
 
-@tree.command(name="check_flag", description="Check if a user is flagged.")
-@app_commands.describe(user_id="User ID to check")
-async def check_flag(interaction: discord.Interaction, user_id: int):
+@tree.command(name="check_flag", description="Check if a user is flagged")
+@app_commands.describe(user_id="The user's Discord ID")
+async def check_flag(interaction: discord.Interaction, user_id: str):
     result = get_user_details(user_id)
     if result:
         reason, added_by, timestamp = result
         embed = discord.Embed(title="Flagged User Info", color=discord.Color.red())
         embed.add_field(name="User ID", value=user_id, inline=False)
         embed.add_field(name="Reason", value=reason, inline=False)
-        embed.add_field(name="Flagged By", value=added_by, inline=True)
+        embed.add_field(name="Flagged By", value=added_by, inline=False)
         embed.set_footer(text=f"Flagged on {timestamp}")
         await interaction.response.send_message(embed=embed)
     else:
-        await interaction.response.send_message("This user is **not flagged**.")
+        await interaction.response.send_message("❌ This user is not flagged.")
 
-@tree.command(name="list_flagged", description="List flagged users in the server.")
+@tree.command(name="list_flagged", description="List flagged users in this server")
 async def list_flagged(interaction: discord.Interaction):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("You need to be an administrator to use this.", ephemeral=True)
-        return
     flagged = []
     for member in interaction.guild.members:
         reason = is_user_banned(member.id)
@@ -151,10 +149,10 @@ async def list_flagged(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("No flagged users in this server.")
 
-@tree.command(name="ban_flagged", description="Ban all flagged users in the server.")
+@tree.command(name="ban_flagged", description="Ban flagged users in this server")
 async def ban_flagged(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("You need to be an administrator to use this.", ephemeral=True)
+        await interaction.response.send_message("Missing administrator permissions.", ephemeral=True)
         return
     count = 0
     for member in interaction.guild.members:
@@ -169,7 +167,5 @@ async def ban_flagged(interaction: discord.Interaction):
                 logging.error(f"Error banning flagged user {member}: {e}")
     await interaction.response.send_message(f"Banned {count} flagged user(s).")
 
-keep_alive()
+# Start Bot
 
-# Run the bot using token from environment variables
-bot.run(os.getenv('DISCORD_BOT_TOKEN'))
