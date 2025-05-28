@@ -21,7 +21,7 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 DB_FILE = "banlist.db"
-OWNER_ID = 1053047461280759860  # Replace with your actual Discord user ID (as an integer)
+OWNER_ID = 1053047461280759860  # Replace with your actual Discord user ID
 
 # Database Initialization
 def init_db():
@@ -103,7 +103,7 @@ async def disable_autoban(interaction: discord.Interaction):
 
 @tree.command(name="add_flag", description="Globally flag a user.")
 @app_commands.describe(user_id="User ID to flag", reason="Reason for flagging")
-async def add_flag(interaction: discord.Interaction, user_id: int, reason: str = "No reason provided"):
+async def add_flag(interaction: discord.Interaction, user_id: str, reason: str = "No reason provided"):
     if interaction.user.id != OWNER_ID:
         await interaction.response.send_message("❌ You are not authorized to use this command.", ephemeral=True)
         return
@@ -113,17 +113,17 @@ async def add_flag(interaction: discord.Interaction, user_id: int, reason: str =
 
 @tree.command(name="remove_flag", description="Remove a flag from a user.")
 @app_commands.describe(user_id="User ID to unflag")
-async def remove_flag(interaction: discord.Interaction, user_id: int):
+async def remove_flag(interaction: discord.Interaction, user_id: str):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("You need to be an administrator to use this.", ephemeral=True)
         return
-    db_query("DELETE FROM banned_users WHERE user_id=?", (str(user_id),))
+    db_query("DELETE FROM banned_users WHERE user_id=?", (user_id,))
     await interaction.response.send_message(f"User `{user_id}` has been **unflagged**.")
     logging.info(f"Unflagged {user_id} by {interaction.user}")
 
 @tree.command(name="check_flag", description="Check if a user is flagged.")
 @app_commands.describe(user_id="User ID to check")
-async def check_flag(interaction: discord.Interaction, user_id: int):
+async def check_flag(interaction: discord.Interaction, user_id: str):
     result = get_user_details(user_id)
     if result:
         reason, added_by, timestamp = result
