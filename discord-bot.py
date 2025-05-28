@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-OWNER_ID = int(os.getenv("OWNER_ID"))  # Put your Discord user ID in the .env file
+OWNER_ID = int(os.getenv("1053047461280759860"))  # Put your Discord user ID in the .env file
 
 # Logging Configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
