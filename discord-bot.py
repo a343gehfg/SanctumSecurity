@@ -6,7 +6,6 @@ from discord import app_commands
 from datetime import datetime
 import logging
 from dotenv import load_dotenv
-
 from keep_alive import keep_alive
 
 # Load environment variables
@@ -34,6 +33,8 @@ def init_db():
                         timestamp TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS autoban_servers (
                         server_id TEXT PRIMARY KEY)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS blacklisted_servers (
+                        server_id TEXT PRIMARY KEY)''')
 
 init_db()
 
@@ -59,10 +60,17 @@ def get_user_details(user_id):
 def is_autoban_enabled(server_id):
     return db_query("SELECT 1 FROM autoban_servers WHERE server_id=?", (str(server_id),), fetchone=True) is not None
 
+def is_server_blacklisted(server_id):
+    return db_query("SELECT 1 FROM blacklisted_servers WHERE server_id=?", (str(server_id),), fetchone=True) is not None
+
 def add_flagged_user(user_id, reason, added_by):
     timestamp = datetime.utcnow().isoformat()
     db_query("INSERT OR REPLACE INTO banned_users (user_id, reason, added_by, timestamp) VALUES (?, ?, ?, ?)",
              (str(user_id), reason, added_by, timestamp))
+
+# Permissions check
+def is_admin(interaction):
+    return interaction.user.guild_permissions.administrator or interaction.user.id == OWNER_ID
 
 # Events
 @bot.event
@@ -71,8 +79,21 @@ async def on_ready():
     logging.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
     await bot.change_presence(activity=discord.Game(name="protecting kids"))
 
+    # Diagnostics
+    flagged_count = db_query("SELECT COUNT(*) FROM banned_users", fetchone=True)[0]
+    server_count = len(bot.guilds)
+    logging.info(f"Connected to {server_count} servers. {flagged_count} users flagged.")
+
 @bot.event
 async def on_member_join(member):
+    if is_server_blacklisted(member.guild.id):
+        try:
+            await member.ban(reason="Server is blacklisted")
+            logging.info(f"Banned {member} from blacklisted server {member.guild.name}")
+            return
+        except Exception as e:
+            logging.error(f"Error banning from blacklisted server: {e}")
+
     if is_autoban_enabled(member.guild.id):
         reason = is_user_banned(member.id)
         if reason:
@@ -87,7 +108,7 @@ async def on_member_join(member):
 # Slash Commands
 @tree.command(name="enable_autoban", description="Enable auto-banning flagged users on join.")
 async def enable_autoban(interaction: discord.Interaction):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin(interaction):
         await interaction.response.send_message("You need to be an administrator to use this.", ephemeral=True)
         return
     db_query("INSERT OR REPLACE INTO autoban_servers (server_id) VALUES (?)", (str(interaction.guild.id),))
@@ -95,7 +116,7 @@ async def enable_autoban(interaction: discord.Interaction):
 
 @tree.command(name="disable_autoban", description="Disable auto-banning flagged users.")
 async def disable_autoban(interaction: discord.Interaction):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin(interaction):
         await interaction.response.send_message("You need to be an administrator to use this.", ephemeral=True)
         return
     db_query("DELETE FROM autoban_servers WHERE server_id=?", (str(interaction.guild.id),))
@@ -103,7 +124,7 @@ async def disable_autoban(interaction: discord.Interaction):
 
 @tree.command(name="add_flag", description="Globally flag a user.")
 @app_commands.describe(user_id="User ID to flag", reason="Reason for flagging")
-async def add_flag(interaction: discord.Interaction, user_id: str, reason: str = "No reason provided"):
+async def add_flag(interaction: discord.Interaction, user_id: int, reason: str = "No reason provided"):
     if interaction.user.id != OWNER_ID:
         await interaction.response.send_message("❌ You are not authorized to use this command.", ephemeral=True)
         return
@@ -111,23 +132,37 @@ async def add_flag(interaction: discord.Interaction, user_id: str, reason: str =
     await interaction.response.send_message(f"✅ User `{user_id}` has been **flagged** for: *{reason}*.")
     logging.info(f"Flagged {user_id} for: {reason} by {interaction.user}")
 
+@tree.command(name="mass_flag", description="Flag multiple user IDs at once.")
+@app_commands.describe(user_ids="Comma-separated user IDs", reason="Reason for flagging")
+async def mass_flag(interaction: discord.Interaction, user_ids: str, reason: str = "No reason provided"):
+    if interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("❌ You are not authorized to use this command.", ephemeral=True)
+        return
+    ids = [uid.strip() for uid in user_ids.split(",") if uid.strip().isdigit()]
+    count = 0
+    for uid in ids:
+        add_flagged_user(uid, reason, str(interaction.user))
+        count += 1
+    await interaction.response.send_message(f"✅ {count} users flagged for: *{reason}*.")
+    logging.info(f"Mass flagged {count} users by {interaction.user}")
+
 @tree.command(name="remove_flag", description="Remove a flag from a user.")
 @app_commands.describe(user_id="User ID to unflag")
-async def remove_flag(interaction: discord.Interaction, user_id: str):
-    if not interaction.user.guild_permissions.administrator:
+async def remove_flag(interaction: discord.Interaction, user_id: int):
+    if not is_admin(interaction):
         await interaction.response.send_message("You need to be an administrator to use this.", ephemeral=True)
         return
-    db_query("DELETE FROM banned_users WHERE user_id=?", (user_id,))
+    db_query("DELETE FROM banned_users WHERE user_id=?", (str(user_id),))
     await interaction.response.send_message(f"User `{user_id}` has been **unflagged**.")
     logging.info(f"Unflagged {user_id} by {interaction.user}")
 
 @tree.command(name="check_flag", description="Check if a user is flagged.")
 @app_commands.describe(user_id="User ID to check")
-async def check_flag(interaction: discord.Interaction, user_id: str):
+async def check_flag(interaction: discord.Interaction, user_id: int):
     result = get_user_details(user_id)
     if result:
         reason, added_by, timestamp = result
-        embed = discord.Embed(title="Flagged User Info", color=discord.Color.red())
+        embed = discord.Embed(title="Flagged User Info", color=discord.Color.red(), timestamp=datetime.utcnow())
         embed.add_field(name="User ID", value=user_id, inline=False)
         embed.add_field(name="Reason", value=reason, inline=False)
         embed.add_field(name="Flagged By", value=added_by, inline=True)
@@ -138,7 +173,7 @@ async def check_flag(interaction: discord.Interaction, user_id: str):
 
 @tree.command(name="list_flagged", description="List flagged users in the server.")
 async def list_flagged(interaction: discord.Interaction):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin(interaction):
         await interaction.response.send_message("You need to be an administrator to use this.", ephemeral=True)
         return
     flagged = []
@@ -153,7 +188,7 @@ async def list_flagged(interaction: discord.Interaction):
 
 @tree.command(name="ban_flagged", description="Ban all flagged users in the server.")
 async def ban_flagged(interaction: discord.Interaction):
-    if not interaction.user.guild_permissions.administrator:
+    if not is_admin(interaction):
         await interaction.response.send_message("You need to be an administrator to use this.", ephemeral=True)
         return
     count = 0
@@ -168,6 +203,15 @@ async def ban_flagged(interaction: discord.Interaction):
             except Exception as e:
                 logging.error(f"Error banning flagged user {member}: {e}")
     await interaction.response.send_message(f"Banned {count} flagged user(s).")
+
+@tree.command(name="blacklist_server", description="Add a server to the global blacklist.")
+@app_commands.describe(server_id="ID of the server to blacklist")
+async def blacklist_server(interaction: discord.Interaction, server_id: str):
+    if interaction.user.id != OWNER_ID:
+        await interaction.response.send_message("Only the owner can blacklist servers.", ephemeral=True)
+        return
+    db_query("INSERT OR REPLACE INTO blacklisted_servers (server_id) VALUES (?)", (server_id,))
+    await interaction.response.send_message(f"✅ Server `{server_id}` has been blacklisted.")
 
 keep_alive()
 
