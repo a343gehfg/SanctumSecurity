@@ -1,10 +1,15 @@
 import sqlite3
 import discord
+import os
 from discord.ext import commands, tasks
 from datetime import datetime
 import logging
+from dotenv import load_dotenv
 
 from keep_alive import keep_alive
+
+# Load environment variables
+load_dotenv()
 
 # Logging Configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -165,4 +170,5 @@ async def check_flag(ctx, user_id: int):
 
 keep_alive()
 
-# bot.run("BOT_API_KEY")
+# Run bot using token from environment variables
+bot.run(os.getenv('DISCORD_BOT_TOKEN'))
