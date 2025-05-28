@@ -4,6 +4,8 @@ from discord.ext import commands, tasks
 from datetime import datetime
 import logging
 
+from keep_alive import keep_alive
+
 # Logging Configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -160,5 +162,7 @@ async def check_flag(ctx, user_id: int):
         await ctx.send(embed=embed)
     else:
         await ctx.send("This user is **not flagged**.")
+
+keep_alive()
 
 # bot.run("BOT_API_KEY")
