@@ -21,7 +21,7 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 DB_FILE = "banlist.db"
-OWNER_ID = YOUR_DISCORD_USER_ID  # Replace with your actual Discord user ID (as an integer)
+OWNER_ID = 1053047461280759860  # Replace with your actual Discord user ID (as an integer)
 
 # Database Initialization
 def init_db():
