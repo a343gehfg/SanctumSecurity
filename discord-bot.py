@@ -161,4 +161,4 @@ async def check_flag(ctx, user_id: int):
     else:
         await ctx.send("This user is **not flagged**.")
 
-# bot.run("MTM3NTU3MjQxNjc3MTY1MzY0Mg.GN4i2L.KsinN6NQxmKU8K13Xr2B2ezhkJ0cGSghVPEckQ")
+# bot.run("BOT_API_KEY")
