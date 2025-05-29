@@ -77,7 +77,7 @@ def is_admin(interaction):
 async def on_ready():
     await tree.sync()
     logging.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
-    await bot.change_presence(activity=discord.Game(name="protecting kids"))
+    await bot.change_presence(activity=discord.Game(name="Protect Children Simulator"))
 
     # Diagnostics
     flagged_count = db_query("SELECT COUNT(*) FROM banned_users", fetchone=True)[0]
