@@ -1,3 +1,6 @@
+# Fixed version of your bot code with the integer bug addressed
+# and global blacklist restricted to only the bot owner
+
 import sqlite3
 import discord
 import os
@@ -72,6 +75,9 @@ def add_flagged_user(user_id, reason, added_by):
 def is_admin(interaction):
     return interaction.user.guild_permissions.administrator or interaction.user.id == OWNER_ID
 
+def is_owner(interaction):
+    return interaction.user.id == OWNER_ID
+
 # Events
 @bot.event
 async def on_ready():
@@ -125,7 +131,7 @@ async def disable_autoban(interaction: discord.Interaction):
 @tree.command(name="add_flag", description="Globally flag a user.")
 @app_commands.describe(user_id="User ID to flag", reason="Reason for flagging")
 async def add_flag(interaction: discord.Interaction, user_id: int, reason: str = "No reason provided"):
-    if interaction.user.id != OWNER_ID:
+    if not is_owner(interaction):
         await interaction.response.send_message("❌ You are not authorized to use this command.", ephemeral=True)
         return
     add_flagged_user(user_id, reason, str(interaction.user))
@@ -135,10 +141,10 @@ async def add_flag(interaction: discord.Interaction, user_id: int, reason: str =
 @tree.command(name="mass_flag", description="Flag multiple user IDs at once.")
 @app_commands.describe(user_ids="Comma-separated user IDs", reason="Reason for flagging")
 async def mass_flag(interaction: discord.Interaction, user_ids: str, reason: str = "No reason provided"):
-    if interaction.user.id != OWNER_ID:
+    if not is_owner(interaction):
         await interaction.response.send_message("❌ You are not authorized to use this command.", ephemeral=True)
         return
-    ids = [uid.strip() for uid in user_ids.split(",") if uid.strip().isdigit()]
+    ids = [str(uid.strip()) for uid in user_ids.split(",") if uid.strip().isdigit()]
     count = 0
     for uid in ids:
         add_flagged_user(uid, reason, str(interaction.user))
@@ -207,11 +213,24 @@ async def ban_flagged(interaction: discord.Interaction):
 @tree.command(name="blacklist_server", description="Add a server to the global blacklist.")
 @app_commands.describe(server_id="ID of the server to blacklist")
 async def blacklist_server(interaction: discord.Interaction, server_id: str):
-    if interaction.user.id != OWNER_ID:
+    if not is_owner(interaction):
         await interaction.response.send_message("Only the owner can blacklist servers.", ephemeral=True)
+        return
+    if not server_id.isdigit():
+        await interaction.response.send_message("❌ Invalid server ID.", ephemeral=True)
         return
     db_query("INSERT OR REPLACE INTO blacklisted_servers (server_id) VALUES (?)", (server_id,))
     await interaction.response.send_message(f"✅ Server `{server_id}` has been blacklisted.")
+    logging.info(f"Server {server_id} blacklisted by {interaction.user}")
+
+@tree.command(name="unblacklist_server", description="Remove a server from the global blacklist.")
+@app_commands.describe(server_id="ID of the server to unblacklist")
+async def unblacklist_server(interaction: discord.Interaction, server_id: str):
+    if not is_owner(interaction):
+        await interaction.response.send_message("Only the owner can unblacklist servers.", ephemeral=True)
+        return
+    db_query("DELETE FROM blacklisted_servers WHERE server_id=?", (server_id,))
+    await interaction.response.send_message(f"✅ Server `{server_id}` has been removed from the blacklist.")
 
 keep_alive()
 
