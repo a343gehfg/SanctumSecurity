@@ -20,7 +20,7 @@ tree = bot.tree
 # Constants
 DB_FILE = "banlist.db"
 OWNER_ID = 1053047461280759860
-GUILD_ID = YOUR_GUILD_ID_HERE  # ← Replace with your test server ID
+GUILD_ID = 1377401935367508110  # ← Replace with your test server ID
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
