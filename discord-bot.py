@@ -1,5 +1,5 @@
-# Fixed version of your bot code with integer-to-string fix applied universally
-# and structure maintained
+# Updated Sanctum Pro core with slash commands and integer bug fixes (IDs as strings)
+# Adds: slash-based wrappers only, RoCleaner import not yet added
 
 import sqlite3
 import discord
@@ -11,21 +11,17 @@ import logging
 from dotenv import load_dotenv
 from keep_alive import keep_alive
 
-# Load environment variables
 load_dotenv()
 
-# Logging Configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Bot Configuration
 intents = discord.Intents.default()
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 DB_FILE = "banlist.db"
-OWNER_ID = 1053047461280759860  # Replace with your actual Discord user ID
+OWNER_ID = 1053047461280759860
 
-# Database Initialization
 def init_db():
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
@@ -41,7 +37,6 @@ def init_db():
 
 init_db()
 
-# DB Helper Functions
 def db_query(query, params=(), fetchone=False, fetchall=False):
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
@@ -52,7 +47,6 @@ def db_query(query, params=(), fetchone=False, fetchall=False):
         elif fetchall:
             return c.fetchall()
 
-# Core Logic
 def is_user_banned(user_id):
     result = db_query("SELECT reason FROM banned_users WHERE user_id=?", (str(user_id),), fetchone=True)
     return result[0] if result else None
@@ -71,21 +65,17 @@ def add_flagged_user(user_id, reason, added_by):
     db_query("INSERT OR REPLACE INTO banned_users (user_id, reason, added_by, timestamp) VALUES (?, ?, ?, ?)",
              (str(user_id), reason, added_by, timestamp))
 
-# Permissions check
 def is_admin(interaction):
     return interaction.user.guild_permissions.administrator or interaction.user.id == OWNER_ID
 
 def is_owner(interaction):
     return interaction.user.id == OWNER_ID
 
-# Events
 @bot.event
 async def on_ready():
     await tree.sync()
     logging.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
     await bot.change_presence(activity=discord.Game(name="Protect Children Simulator"))
-
-    # Diagnostics
     flagged_count = db_query("SELECT COUNT(*) FROM banned_users", fetchone=True)[0]
     server_count = len(bot.guilds)
     logging.info(f"Connected to {server_count} servers. {flagged_count} users flagged.")
@@ -104,6 +94,10 @@ async def on_member_join(member):
         reason = is_user_banned(str(member.id))
         if reason:
             try:
+                await member.send(f"You were banned from {member.guild.name} for: {reason}")
+            except:
+                pass
+            try:
                 await member.ban(reason=f"Auto-flagged: {reason}")
                 logging.info(f"Auto-banned {member} in {member.guild.name} for: {reason}")
             except discord.Forbidden:
@@ -111,9 +105,5 @@ async def on_member_join(member):
             except Exception as e:
                 logging.error(f"Failed to auto-ban {member}: {e}")
 
-# (Remaining commands stay unchanged but use str() for IDs passed to DB)
-
 keep_alive()
-
-# Run the bot using token from environment variables
 bot.run(os.getenv('DISCORD_BOT_TOKEN'))
