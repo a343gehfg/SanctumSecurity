@@ -34,39 +34,37 @@ def is_server_admin(interaction: discord.Interaction):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-    # Remove all commands first to prevent duplication
-    await tree.sync(guild=None)  # Global sync, should clear duplicates
+    await tree.sync()  # global sync to clear duplicates and register commands
 
 # /search command - server admin only
 @tree.command(name="search", description="Search user info")
 @app_commands.check(is_server_admin)
 async def search(interaction: discord.Interaction, user: discord.User):
-    # Compose embed
     embed_color = discord.Color.red() if user.id in flagged_users else discord.Color.green()
     embed = discord.Embed(title=f"User Info: {user}", color=embed_color)
+    member = interaction.guild.get_member(user.id)
     embed.set_thumbnail(url=user.display_avatar.url)
     embed.add_field(name="User ID", value=str(user.id))
-    embed.add_field(name="Joined Server", value=interaction.guild.get_member(user.id).joined_at.strftime("%Y-%m-%d") if interaction.guild.get_member(user.id) else "N/A")
+    embed.add_field(name="Joined Server", value=member.joined_at.strftime("%Y-%m-%d") if member else "N/A")
     embed.add_field(name="Flagged", value="Yes" if user.id in flagged_users else "No")
-    
-    # Potential alts
+
     potential_alts = [alt for alt, main in alts_db.items() if main == user.id]
     if potential_alts:
         alt_mentions = ", ".join(f"<@{alt}>" for alt in potential_alts)
         embed.add_field(name="Potential Alts", value=alt_mentions)
     else:
         embed.add_field(name="Potential Alts", value="None")
-    
+
     await interaction.response.send_message(embed=embed)
 
-# /flagalt [alt] [main] - server admin only
+# /flagalt command - server admin only
 @tree.command(name="flagalt", description="Link alt account to main")
 @app_commands.check(is_server_admin)
 async def flagalt(interaction: discord.Interaction, alt: discord.User, main: discord.User):
     alts_db[alt.id] = main.id
     await interaction.response.send_message(f"Linked {alt} as alt of {main}.")
 
-# /unlink [alt] - server admin only
+# /unlink command - server admin only
 @tree.command(name="unlink", description="Remove alt link")
 @app_commands.check(is_server_admin)
 async def unlink(interaction: discord.Interaction, alt: discord.User):
@@ -96,54 +94,57 @@ async def unadmin(interaction: discord.Interaction, user: discord.User):
     else:
         await interaction.response.send_message(f"{user} was not a server admin.")
 
-# Config commands - server owner only
-@tree.group(name="config", description="Manage bot configuration", guild=None)
-@app_commands.check(is_server_owner)
-async def config(interaction: discord.Interaction):
-    # Root config command - do nothing
-    await interaction.response.send_message("Use a subcommand.", ephemeral=True)
+# --- Fix for config group commands ---
 
-@config.command(name="setlogchannel", description="Set log channel")
-async def setlogchannel(interaction: discord.Interaction, channel: discord.TextChannel):
-    server_log_channels[interaction.guild.id] = channel.id
-    await interaction.response.send_message(f"Log channel set to {channel.mention}")
+# Define config group as app_commands.Group
+class ConfigGroup(app_commands.Group):
+    def __init__(self):
+        super().__init__(name="config", description="Manage bot configuration")
 
-@config.command(name="setrole", description="Set role for action")
-async def setrole(interaction: discord.Interaction, action: str, role: discord.Role):
-    roles = server_admin_roles.setdefault(interaction.guild.id, {})
-    roles[action] = role.id
-    await interaction.response.send_message(f"Set role for {action} to {role.mention}")
+    @app_commands.command(name="setlogchannel", description="Set log channel")
+    async def setlogchannel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        server_log_channels[interaction.guild.id] = channel.id
+        await interaction.response.send_message(f"Log channel set to {channel.mention}")
 
-@config.command(name="resetrole", description="Reset role for action")
-async def resetrole(interaction: discord.Interaction, action: str):
-    roles = server_admin_roles.get(interaction.guild.id, {})
-    if action in roles:
-        del roles[action]
-        await interaction.response.send_message(f"Reset role for {action}")
-    else:
-        await interaction.response.send_message(f"No role set for {action}")
+    @app_commands.command(name="setrole", description="Set role for action")
+    async def setrole(self, interaction: discord.Interaction, action: str, role: discord.Role):
+        roles = server_admin_roles.setdefault(interaction.guild.id, {})
+        roles[action] = role.id
+        await interaction.response.send_message(f"Set role for {action} to {role.mention}")
 
-@config.command(name="show", description="Show config")
-async def show(interaction: discord.Interaction):
-    guild_id = interaction.guild.id
-    log_channel_id = server_log_channels.get(guild_id)
-    roles = server_admin_roles.get(guild_id, {})
-    embed = discord.Embed(title="Config for this server")
-    embed.add_field(name="Log Channel", value=f"<#{log_channel_id}>" if log_channel_id else "Not Set")
-    if roles:
-        roles_str = "\n".join(f"{action}: <@&{role_id}>" for action, role_id in roles.items())
-    else:
-        roles_str = "No roles set"
-    embed.add_field(name="Roles", value=roles_str)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    @app_commands.command(name="resetrole", description="Reset role for action")
+    async def resetrole(self, interaction: discord.Interaction, action: str):
+        roles = server_admin_roles.get(interaction.guild.id, {})
+        if action in roles:
+            del roles[action]
+            await interaction.response.send_message(f"Reset role for {action}")
+        else:
+            await interaction.response.send_message(f"No role set for {action}")
 
-# Support command (fix)
+    @app_commands.command(name="show", description="Show config")
+    async def show(self, interaction: discord.Interaction):
+        guild_id = interaction.guild.id
+        log_channel_id = server_log_channels.get(guild_id)
+        roles = server_admin_roles.get(guild_id, {})
+        embed = discord.Embed(title="Config for this server")
+        embed.add_field(name="Log Channel", value=f"<#{log_channel_id}>" if log_channel_id else "Not Set")
+        if roles:
+            roles_str = "\n".join(f"{action}: <@&{role_id}>" for action, role_id in roles.items())
+        else:
+            roles_str = "No roles set"
+        embed.add_field(name="Roles", value=roles_str)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# Instantiate the group and add permission checks
+config_group = ConfigGroup()
+config_group.checks.append(is_server_owner)
+tree.add_command(config_group)
+
+# Support command (server admin only)
 @tree.command(name="support", description="Get support info")
 @app_commands.check(is_server_admin)
 async def support(interaction: discord.Interaction):
     await interaction.response.send_message("For support, join our support server: https://discord.gg/yourserver")
-
-# Other moderation commands like /ban, /kick, /mute, /timeout, /warn can be similarly defined with checks
 
 # Error handler for permission checks
 @tree.error
@@ -151,7 +152,6 @@ async def on_app_command_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.CheckFailure):
         await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
     else:
-        # Log or print unexpected errors
         print(f"Error in command {interaction.command}: {error}")
         await interaction.response.send_message("An unexpected error occurred.", ephemeral=True)
 
