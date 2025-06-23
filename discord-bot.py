@@ -506,4 +506,4 @@ async def help_command(interaction: discord.Interaction):
 
 # Run
 keep_alive()  # if you have keep_alive.py for hosting
-bot.run(os.getenv("TOKEN"))
+bot.run(os.getenv("DISCORD_BOT_TOKEN"))
